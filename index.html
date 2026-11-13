@@ -655,7 +655,22 @@ document.querySelectorAll('[data-open-full]').forEach(button=>button.addEventLis
 document.querySelectorAll('[data-open-bag]').forEach(button=>button.addEventListener('click',()=>{ $('#catalog-dialog').close(); renderSelection(); openDialog($('#bag-dialog')); }));
 document.addEventListener('click',event=>{const add=event.target.closest('[data-add]');if(add)addAndOpenCart(add.dataset.add);});
 
-const hostedCatalog = false;
+const hostedCatalog = true;
+setInterval(()=>{if(!document.hidden)refreshCatalog().catch(()=>{})},30000);
+const SUPA_URL='https://uuzdbfizpozdacygnzkj.supabase.co';
+const SUPA_KEY='sb_publishable_8f8lPYQvJU5eP9SAPTM-xw_d2Kl8_Y5';
+const CLOUD_API=SUPA_URL+'/functions/v1/lajoalheria-api';
+let adminToken=sessionStorage.getItem('la-rv-cloud-token')||'';
+async function cloudAction(action,extra={}) {
+ const res=await fetch(CLOUD_API,{method:'POST',headers:{'Content-Type':'application/json','apikey':SUPA_KEY,...(adminToken?{'Authorization':'Bearer '+adminToken}:{})},body:JSON.stringify({action,...extra})});
+ const result=await res.json().catch(()=>({}));if(!res.ok||result.error)throw Error(result.error||'Falha ao salvar no servidor');return result;
+}
+async function cloudCatalog(){
+ const res=await fetch(SUPA_URL+'/rest/v1/lajoalheria_catalog?select=*&order=id.asc',{cache:'no-store',headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY}});
+ if(!res.ok)throw Error('Não foi possível carregar o catálogo na nuvem');
+ const rows=await res.json();return {revision:Date.now(),products:rows.map(p=>({...p,image:p.image||initialProducts.get(p.id)?.image||''}))};
+}
+
 const localCatalogKey = 'la-rv-catalog-nov2026-v2';
 const initialProducts = new Map(PRODUCTS.map(product => [product.id, product]));
 let storefrontRevision = -1;
@@ -728,7 +743,7 @@ function applyCatalog({revision,products}) {
 function refreshCatalog() {
   if (catalogRequest) return catalogRequest;
   catalogRequest = Promise.resolve()
-    .then(() => hostedCatalog ? catalogApi('/api/catalog') : localCatalog())
+    .then(() => hostedCatalog ? cloudCatalog() : localCatalog())
     .then(data => applyCatalog(data))
     .catch(() => {
       const status = $('#catalog-sync-status');
@@ -974,7 +989,7 @@ const editIcon = '<svg class="ad-icon" viewBox="0 0 24 24" aria-hidden="true"><p
 document.querySelector('footer').insertAdjacentHTML('beforeend',`<button class="admin-pencil" id="admin-entry" aria-label="Editar catálogo" title="Editar catálogo">${editIcon}</button>`);
 document.body.insertAdjacentHTML('beforeend',`
 <dialog id="admin-panel" aria-label="Painel do catálogo La Joalheria RV"><div class="ad-shell rv-admin-shell"><div class="ad-workspace">
-  <div class="ad-demo-banner"><span>${hostedCatalog?'Catálogo na nuvem · as alterações aparecem na vitrine.':'Edição local · acesso protegido por usuário e senha. Alterações feitas aqui ficam neste navegador.'}</span></div>
+  <div class="ad-demo-banner"><span>${hostedCatalog?'Catálogo sincronizado pelo Supabase · alterações disponíveis em outros dispositivos.':'Edição local · acesso protegido por usuário e senha. Alterações feitas aqui ficam neste navegador.'}</span></div>
   <header class="ad-topbar"><div><small>LA JOALHERIA RV</small><b>Editor do catálogo</b></div><div class="ad-top-tools">${button('Ver loja','close-panel','ad-btn--light')}</div></header>
   <main class="ad-main" id="ad-main"></main>
 </div></div></dialog>
@@ -998,7 +1013,14 @@ async function save(product) {
  if (busy) throw Error('Aguarde a gravação anterior.');
  busy = true;
  try {
-  if (hostedCatalog) data = await catalogApi('/api/editor', {product});
+  if (hostedCatalog) {
+   let image=product.image||'';
+   if(image.startsWith('data:')){
+     const uploaded=await cloudAction('upload',{image});image=uploaded.url;
+   }
+   const result=await cloudAction('save',{product:{...product,image}});
+   data=await cloudCatalog();
+  }
   else {
    const latest = localCatalog();
    const old = latest.products.find(item => item.id === product.id);
@@ -1054,18 +1076,17 @@ async function edit(product) {
 }
 
 $('#admin-entry').addEventListener('click',async event => {
- if(sessionStorage.getItem('la-rv-editor-session')!=='ok') {
-   const login=prompt('La Joalheria · Usuário do painel:');
-   if(login===null)return;
-   const password=prompt('Senha do painel:');
-   if(login!=='lajoalheria'||password!=='joia123'){toast('Usuário ou senha incorretos.');return;}
-   sessionStorage.setItem('la-rv-editor-session','ok');
+ if(!adminToken){
+   const username=prompt('La Joalheria · Usuário do painel:');if(username===null)return;
+   const password=prompt('Senha do painel:');if(password===null)return;
+   try{const session=await cloudAction('login',{username,password});adminToken=session.token;sessionStorage.setItem('la-rv-cloud-token',adminToken)}
+   catch(e){toast(e.message);return}
  }
 
  const control = event.currentTarget;
  control.disabled = true;
  try {
-  data = hostedCatalog ? await catalogApi('/api/editor') : localCatalog();
+  data = hostedCatalog ? await cloudCatalog() : localCatalog();
   paint();
   openDialog(panel);
  } catch (error) { toast(error.message); }
