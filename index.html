@@ -665,10 +665,13 @@ async function cloudAction(action,extra={}) {
  const res=await fetch(CLOUD_API,{method:'POST',headers:{'Content-Type':'application/json','apikey':SUPA_KEY,...(adminToken?{'Authorization':'Bearer '+adminToken}:{})},body:JSON.stringify({action,...extra})});
  const result=await res.json().catch(()=>({}));if(!res.ok||result.error)throw Error(result.error||'Falha ao salvar no servidor');return result;
 }
-async function cloudCatalog(){
+async function fetchCloudCatalog(){
  const res=await fetch(SUPA_URL+'/rest/v1/lajoalheria_catalog?select=*&order=id.asc',{cache:'no-store',headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY}});
  if(!res.ok)throw Error('Não foi possível carregar o catálogo na nuvem');
- const rows=await res.json();return {revision:Date.now(),products:rows.map(p=>({...p,image:p.image||initialProducts.get(p.id)?.image||''}))};
+ const rows=await res.json();
+ if(!Array.isArray(rows)||!rows.length)throw Error('Catálogo na nuvem vazio; mantendo os produtos originais.');
+ const byId=new Map(PRODUCTS.map(p=>[p.id,p]));
+ return {revision:Date.now(),products:rows.map(p=>({...byId.get(p.id),...p,image:p.image||byId.get(p.id)?.image||''}))};
 }
 
 const localCatalogKey = 'la-rv-catalog-nov2026-v2';
@@ -743,7 +746,7 @@ function applyCatalog({revision,products}) {
 function refreshCatalog() {
   if (catalogRequest) return catalogRequest;
   catalogRequest = Promise.resolve()
-    .then(() => hostedCatalog ? cloudCatalog() : localCatalog())
+    .then(() => hostedCatalog ? fetchCloudCatalog() : localCatalog())
     .then(data => applyCatalog(data))
     .catch(() => {
       const status = $('#catalog-sync-status');
@@ -782,6 +785,7 @@ const cloudCatalog = {
 loadProducts();
 if (!hostedCatalog) refreshCatalog();
 else {
+  applyCatalog({revision:0,products:PRODUCTS});
   const status = $('#catalog-sync-status');
   status.textContent = 'Carregando catálogo…';
   status.hidden = false;
@@ -1019,7 +1023,7 @@ async function save(product) {
      const uploaded=await cloudAction('upload',{image});image=uploaded.url;
    }
    const result=await cloudAction('save',{product:{...product,image}});
-   data=await cloudCatalog();
+   data=await fetchCloudCatalog();
   }
   else {
    const latest = localCatalog();
@@ -1086,7 +1090,7 @@ $('#admin-entry').addEventListener('click',async event => {
  const control = event.currentTarget;
  control.disabled = true;
  try {
-  data = hostedCatalog ? await cloudCatalog() : localCatalog();
+  data = hostedCatalog ? await fetchCloudCatalog() : localCatalog();
   paint();
   openDialog(panel);
  } catch (error) { toast(error.message); }
