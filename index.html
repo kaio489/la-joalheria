@@ -655,10 +655,7 @@ document.querySelectorAll('[data-open-full]').forEach(button=>button.addEventLis
 document.querySelectorAll('[data-open-bag]').forEach(button=>button.addEventListener('click',()=>{ $('#catalog-dialog').close(); renderSelection(); openDialog($('#bag-dialog')); }));
 document.addEventListener('click',event=>{const add=event.target.closest('[data-add]');if(add)addAndOpenCart(add.dataset.add);});
 
-const hostedCatalog = true;
-const SUPABASE_URL='https://uuzdbfizpozdacygnzkj.supabase.co';
-const SUPABASE_KEY='sb_publishable_8f8lPYQvJU5eP9SAPTM-xw_d2Kl8_Y5';
-let cloudToken='';
+const hostedCatalog = false;
 const localCatalogKey = 'la-rv-catalog-nov2026-v2';
 const initialProducts = new Map(PRODUCTS.map(product => [product.id, product]));
 let storefrontRevision = -1;
@@ -673,26 +670,13 @@ function localCatalog() {
 }
 
 async function catalogApi(path, body) {
- const headers={'apikey':SUPABASE_KEY,'Content-Type':'application/json'};
- if(cloudToken)headers.Authorization='Bearer '+cloudToken;
- if(path==='/api/editor' && body){
-  if(!cloudToken)throw Error('Faça login para salvar na nuvem.');
-  const product=body.product;
-  const row={...product,version:(product.version||0)+1,updated_at:new Date().toISOString()};
-  const response=await fetch(SUPABASE_URL+'/rest/v1/lajoalheria_catalog?on_conflict=id',{method:'POST',headers:{...headers,Prefer:'resolution=merge-duplicates,return=representation'},body:JSON.stringify(row)});
-  if(!response.ok)throw Error('Erro ao salvar na nuvem: '+await response.text());
- }
- const response=await fetch(SUPABASE_URL+'/rest/v1/lajoalheria_catalog?select=*&order=id.asc',{headers,cache:'no-store'});
- if(!response.ok)throw Error('Não foi possível carregar o catálogo da nuvem.');
- const products=await response.json();
- return {revision:Date.now(),products:products.length?products:PRODUCTS};
-}
-async function cloudLogin(username,password){
- if(username!=='lajoalheria')throw Error('Usuário inválido.');
- const response=await fetch(SUPABASE_URL+'/auth/v1/token?grant_type=password',{method:'POST',headers:{apikey:SUPABASE_KEY,'Content-Type':'application/json'},body:JSON.stringify({email:'lajoalheria@admin.local',password})});
- const result=await response.json();
- if(!response.ok||!result.access_token)throw Error('Login não autorizado. Configure a conta administrativa no Supabase Auth.');
- cloudToken=result.access_token;
+  const response = await fetch(path, {
+    cache:'no-store', credentials:'same-origin', signal:AbortSignal.timeout(15000),
+    ...(body && {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}),
+  });
+  const data = await response.json().catch(() => null);
+  if (!response.ok || !data) throw new Error(data?.error || 'Não foi possível conectar ao catálogo. Tente novamente.');
+  return data;
 }
 
 function photoFor(product) {
@@ -990,7 +974,7 @@ const editIcon = '<svg class="ad-icon" viewBox="0 0 24 24" aria-hidden="true"><p
 document.querySelector('footer').insertAdjacentHTML('beforeend',`<button class="admin-pencil" id="admin-entry" aria-label="Editar catálogo" title="Editar catálogo">${editIcon}</button>`);
 document.body.insertAdjacentHTML('beforeend',`
 <dialog id="admin-panel" aria-label="Painel do catálogo La Joalheria RV"><div class="ad-shell rv-admin-shell"><div class="ad-workspace">
-  <div class="ad-demo-banner"><span>${hostedCatalog?'Catálogo na nuvem · as alterações aparecem na vitrine.':'Modo local · configure a nuvem para sincronizar alterações entre dispositivos.'}</span></div>
+  <div class="ad-demo-banner"><span>${hostedCatalog?'Catálogo na nuvem · as alterações aparecem na vitrine.':'Edição local · acesso protegido por usuário e senha. Alterações feitas aqui ficam neste navegador.'}</span></div>
   <header class="ad-topbar"><div><small>LA JOALHERIA RV</small><b>Editor do catálogo</b></div><div class="ad-top-tools">${button('Ver loja','close-panel','ad-btn--light')}</div></header>
   <main class="ad-main" id="ad-main"></main>
 </div></div></dialog>
@@ -1070,12 +1054,12 @@ async function edit(product) {
 }
 
 $('#admin-entry').addEventListener('click',async event => {
- if(!cloudToken) {
+ if(sessionStorage.getItem('la-rv-editor-session')!=='ok') {
    const login=prompt('La Joalheria · Usuário do painel:');
    if(login===null)return;
    const password=prompt('Senha do painel:');
-   try{await cloudLogin(login,password)}catch(err){toast(err.message);return;}
-   /* Supabase Auth session active in memory */
+   if(login!=='lajoalheria'||password!=='joia123'){toast('Usuário ou senha incorretos.');return;}
+   sessionStorage.setItem('la-rv-editor-session','ok');
  }
 
  const control = event.currentTarget;
