@@ -334,7 +334,21 @@ footer .links a,footer .actions .btn{border-color:#a88b61}
 .top__in .brand .lua-wordmark{min-width:max-content}
 @media(min-width:801px){.top__in{grid-template-columns:228px minmax(0,1fr) 48px}}
 
-</style></head>
+</style><style id="la-product-images-no-crop">
+/* Fotos de produtos: exibir o enquadramento completo sem recortes. */
+.card__img img, .fashion-gallery img, .detail-photo img,
+.bag-row img, .ci img, .ad-product img, .ad-preview-image,
+.detail-gallery img, .ad-gallery-list img {
+  object-fit: contain !important;
+  object-position: center center !important;
+}
+.card__img, .fashion-gallery button, .detail-photo,
+.ad-product, .ad-preview-image, .ad-gallery-list li {
+  background-color: #f8f4ef;
+}
+.detail-photo img {max-width:100%;}
+</style>
+</head>
 <body>
 <svg class="icon-defs" aria-hidden="true"><defs>
 <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></symbol>
