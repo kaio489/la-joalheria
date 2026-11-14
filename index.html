@@ -661,9 +661,36 @@ const SUPA_URL='https://uuzdbfizpozdacygnzkj.supabase.co';
 const SUPA_KEY='sb_publishable_8f8lPYQvJU5eP9SAPTM-xw_d2Kl8_Y5';
 const CLOUD_API=SUPA_URL+'/functions/v1/lajoalheria-api';
 let adminToken=sessionStorage.getItem('la-rv-cloud-token')||'';
-async function cloudAction(action,extra={}) {
- const res=await fetch(CLOUD_API,{method:'POST',headers:{'Content-Type':'application/json','apikey':SUPA_KEY,...(adminToken?{'Authorization':'Bearer '+adminToken}:{})},body:JSON.stringify({action,...extra})});
- const result=await res.json().catch(()=>({}));if(!res.ok||result.error)throw Error(result.error||'Falha ao salvar no servidor');return result;
+async function cloudLogin() {
+ const username=prompt('La Joalheria · Usuário do painel:');
+ if(username===null)throw Error('Login cancelado.');
+ const password=prompt('Senha do painel:');
+ if(password===null)throw Error('Login cancelado.');
+ const response=await fetch(CLOUD_API,{
+   method:'POST',headers:{'Content-Type':'application/json','apikey':SUPA_KEY},
+   body:JSON.stringify({action:'login',username,password})
+ });
+ const session=await response.json().catch(()=>({}));
+ if(!response.ok||!session.token)throw Error(session.error||'Não foi possível entrar no painel.');
+ adminToken=session.token;
+ sessionStorage.setItem('la-rv-cloud-token',adminToken);
+ return session;
+}
+async function cloudAction(action,extra={},retry=true) {
+ const res=await fetch(CLOUD_API,{
+   method:'POST',
+   headers:{'Content-Type':'application/json','apikey':SUPA_KEY,...(adminToken?{'Authorization':'Bearer '+adminToken}:{})},
+   body:JSON.stringify({action,...extra})
+ });
+ const result=await res.json().catch(()=>({}));
+ if(res.status===401 && retry && action!=='login'){
+   adminToken='';
+   sessionStorage.removeItem('la-rv-cloud-token');
+   await cloudLogin();
+   return cloudAction(action,extra,false);
+ }
+ if(!res.ok||result.error)throw Error(result.error||'Falha ao salvar no servidor');
+ return result;
 }
 async function fetchCloudCatalog(){
  const res=await fetch(SUPA_URL+'/rest/v1/lajoalheria_catalog?select=*&order=id.asc',{cache:'no-store',headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY}});
@@ -1081,10 +1108,7 @@ async function edit(product) {
 
 $('#admin-entry').addEventListener('click',async event => {
  if(!adminToken){
-   const username=prompt('La Joalheria · Usuário do painel:');if(username===null)return;
-   const password=prompt('Senha do painel:');if(password===null)return;
-   try{const session=await cloudAction('login',{username,password});adminToken=session.token;sessionStorage.setItem('la-rv-cloud-token',adminToken)}
-   catch(e){toast(e.message);return}
+   try{await cloudLogin()}catch(e){toast(e.message);return}
  }
 
  const control = event.currentTarget;
